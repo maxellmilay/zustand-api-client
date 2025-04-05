@@ -166,6 +166,9 @@ describe('apiClient (after initialization)', () => {
 
   // Test Error Handling - API Error (e.g., 4xx, 5xx)
   it('should handle API errors (error.response)', async () => {
+    // Temporarily suppress console.error for this expected error log
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const mockApiError = {
       response: { status: 404, data: { message: 'Not Found' } }
     };
@@ -177,10 +180,16 @@ describe('apiClient (after initialization)', () => {
         url: endpoint,
         params: {}
     });
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 
   // Test Error Handling - No Response
    it('should handle network errors (error.request)', async () => {
+    // Temporarily suppress console.error for this expected error log
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const mockNetworkError = {
       request: { /* some request object */ },
       message: 'Network Error'
@@ -193,10 +202,16 @@ describe('apiClient (after initialization)', () => {
         url: endpoint,
         params: {}
     });
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 
   // Test Error Handling - Setup Error
   it('should handle request setup errors (error.message)', async () => {
+    // Temporarily suppress console.error for this expected error log
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
     const mockSetupError = new Error('Failed to setup request');
     mockAxiosInstance.request.mockRejectedValue(mockSetupError);
 
@@ -206,6 +221,9 @@ describe('apiClient (after initialization)', () => {
         url: endpoint,
         params: {}
     });
+
+    // Restore console.error
+    consoleErrorSpy.mockRestore();
   });
 });
 
