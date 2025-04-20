@@ -7,6 +7,7 @@ A helper library integrating Zustand state management with a configurable Axios 
 *   Initialize a shared Axios instance for your API.
 *   Generic Zustand store creator for common CRUD operations.
 *   Type-safe when used with TypeScript.
+*   Customizable API actions - include only the operations you need.
 *   Extensible stores for custom state and actions.
 *   Handles loading and error states automatically.
 
@@ -67,7 +68,34 @@ const useUserStore = createGenericStore<User>('/users');
 export default useUserStore;
 ```
 
-### 4. Use the Store
+### 4. Customizing Available Actions
+
+You can specify which API actions should be available in your store. This is useful for creating read-only stores or stores with limited functionality.
+
+```typescript
+// stores/readOnlyUserStore.ts - for a store that only allows reading users
+import { createGenericStore } from 'zustand-api-helper';
+import User from '../interfaces/User';
+
+// Create a store with only fetch operations
+const useReadOnlyUserStore = createGenericStore<User>('/users', {
+  actions: ['fetchAll', 'fetchOne'] // Only include these actions
+});
+
+// stores/adminUserStore.ts - for a store with full CRUD operations
+import { createGenericStore } from 'zustand-api-helper';
+import User from '../interfaces/User';
+
+// Create a store with all operations
+const useAdminUserStore = createGenericStore<User>('/users', {
+  actions: ['fetchAll', 'fetchOne', 'create', 'update', 'remove']
+});
+
+// Or simply omit the actions option to include all operations
+const useAdminUserStore = createGenericStore<User>('/users');
+```
+
+### 5. Use the Store
 
 Use the created store hook in your components (React shown) or other parts of your application.
 
@@ -118,9 +146,9 @@ function UserList(): JSX.Element {
 export default UserList;
 ```
 
-### 5. Extending Stores (Optional)
+### 6. Extending Stores (Optional)
 
-Add custom state or actions using the second argument of `createGenericStore`. Define an interface for your extensions.
+Add custom state or actions using the `extendStore` option of `createGenericStore`. Define an interface for your extensions.
 
 ```typescript
 // stores/productStore.ts
@@ -149,51 +177,61 @@ interface ProductStoreExtension {
 }
 
 // 3. Create the store, passing Product and the extension type
+// You can also specify which actions to include
 const useProductStore = createGenericStore<Product, ProductStoreExtension>(
     '/products',
-    (set, get): ProductStoreExtension => ({ // Return type must match interface
-        // Custom state
-        featuredProduct: null,
-        categories: [],
+    {
+        // Choose which actions to include (optional)
+        actions: ['fetchAll', 'fetchOne', 'update'],
+        
+        // Define custom state and actions
+        extendStore: (set, get): ProductStoreExtension => ({ 
+            // Custom state
+            featuredProduct: null,
+            categories: [],
 
-        // Custom action using apiClient
-        fetchFeaturedProduct: async () => {
-            set({ loading: true });
-            try {
-                // Type argument <Product> specifies expected response type
-                const featured = await apiClient.get<Product>('/products/featured');
-                set({ featuredProduct: featured, loading: false });
-            } catch (error: any) {
-                set({ error: error instanceof Error ? error : new Error(String(error)), loading: false });
-            }
-        },
+            // Custom action using apiClient
+            fetchFeaturedProduct: async () => {
+                set({ loading: true });
+                try {
+                    // Type argument <Product> specifies expected response type
+                    const featured = await apiClient.get<Product>('/products/featured');
+                    set({ featuredProduct: featured, loading: false });
+                } catch (error: any) {
+                    set({ error: error instanceof Error ? error : new Error(String(error)), loading: false });
+                }
+            },
 
-        fetchCategories: async () => {
-            // Example: Use generic fetchAll from the base store
-            await get().fetchAll({ fields: 'category' }); // Hypothetical API param
-            // Process results to populate categories
-            const fetchedItems = get().items;
-            const uniqueCategories = [...new Set(fetchedItems.map(p => p.category))];
-            set({ categories: uniqueCategories });
-        },
+            fetchCategories: async () => {
+                // Example: Use generic fetchAll from the base store
+                const state = get();
+                if (state.fetchAll) {
+                    await state.fetchAll({ fields: 'category' }); // Hypothetical API param
+                    // Process results to populate categories
+                    const fetchedItems = state.items;
+                    const uniqueCategories = [...new Set(fetchedItems.map(p => p.category))];
+                    set({ categories: uniqueCategories });
+                }
+            },
 
-        // Custom action modifying state
-        applyDiscount: (percentage: number) => {
-            const discountMultiplier = (100 - percentage) / 100;
-            set(state => ({
-                // Important: Ensure state access is type-safe
-                // Cast state to full type if TypeScript needs help
-                items: (state as GenericState<Product>).items.map(p => (
-                    { ...p, price: p.price * discountMultiplier }
-                ))
-            }));
-            // Also update the single item if it exists
-             const currentItem = (get() as GenericState<Product>).item;
-             if (currentItem) {
-                 set({ item: { ...currentItem, price: currentItem.price * discountMultiplier } });
-             }
-        },
-    })
+            // Custom action modifying state
+            applyDiscount: (percentage: number) => {
+                const discountMultiplier = (100 - percentage) / 100;
+                set(state => ({
+                    // Important: Ensure state access is type-safe
+                    // Cast state to full type if TypeScript needs help
+                    items: (state as GenericState<Product>).items.map(p => (
+                        { ...p, price: p.price * discountMultiplier }
+                    ))
+                }));
+                // Also update the single item if it exists
+                 const currentItem = (get() as GenericState<Product>).item;
+                 if (currentItem) {
+                     set({ item: { ...currentItem, price: currentItem.price * discountMultiplier } });
+                 }
+            },
+        })
+    }
 );
 
 export default useProductStore;
@@ -214,13 +252,15 @@ export default useProductStore;
 *   Methods: `get`, `post`, `put`, `delete`, `postFile`. These methods automatically handle errors using the internal `handleError` function (which logs and re-throws).
 *   Methods accept an optional type argument for the expected response data (e.g., `apiClient.get<User>('/users/1')`).
 
-### `createGenericStore<T, TExtension = {}>(endpoint, extendStore?)`
+### `createGenericStore<T, TExtension = {}>(endpoint, options?)`
 
 *   Creates a Zustand store bound to an API endpoint.
 *   `T`: The TypeScript type of the items being managed (e.g., `User`). Must have an `id` property.
 *   `TExtension`: (Optional) The TypeScript type for the custom state and actions added via `extendStore`.
 *   `endpoint` (String): The API endpoint path relative to the `baseURL` (e.g., '/users').
-*   `extendStore` (Function, optional): `(set, get) => TExtension`. A function defining custom state and actions.
+*   `options` (Object, optional):
+    *   `actions` (Array, optional): List of action names to include in the store. Available values: `'fetchAll'`, `'fetchOne'`, `'create'`, `'update'`, `'remove'`. If not provided, all actions are included.
+    *   `extendStore` (Function, optional): `(set, get) => TExtension`. A function defining custom state and actions.
 *   Returns: A Zustand store hook (`UseBoundStore<StoreApi<CombinedState>>`).
 
 #### Generic Store State
@@ -233,17 +273,20 @@ export default useProductStore;
 
 #### Generic Store Actions
 
-*   `fetchAll(params?)`: Fetches a list of resources. Updates `items` and `meta`.
-*   `fetchOne(id)`: Fetches a single resource by ID. Updates `item`.
-*   `create(payload)`: Creates a new resource. Calls `fetchAll` on success.
-*   `update(id, payload)`: Updates an existing resource. Calls `fetchAll` on success.
-*   `remove(id)`: Deletes a resource. Calls `fetchAll` on success.
+*   `fetchAll?(params?)`: Fetches a list of resources. Updates `items` and `meta`.
+*   `fetchOne?(id)`: Fetches a single resource by ID. Updates `item`.
+*   `create?(payload)`: Creates a new resource. Calls `fetchAll` on success if available.
+*   `update?(id, payload)`: Updates an existing resource. Calls `fetchAll` on success if available.
+*   `remove?(id)`: Deletes a resource. Calls `fetchAll` on success if available.
+
+Note: Each action is only present if included in the `actions` array or if the array is omitted (all actions included by default).
 
 #### Exported Helper Types
 
 *   `GenericState<T>`: Interface for the base state.
 *   `GenericActions<T>`: Interface for the base actions.
 *   `Meta`: Interface for the pagination metadata.
+*   `ActionType`: Type representing the available action names (`'fetchAll'` | `'fetchOne'` | `'create'` | `'update'` | `'remove'`).
 
 ## Testing
 
